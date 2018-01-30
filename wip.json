@@ -1,0 +1,45 @@
+{
+  "id":"wip",
+  "description": "TCP server for WAGO clients",
+  "gendevices":1,
+  "module":"wagotcp.js",
+  
+  "params": [
+			{
+				"name": "port",
+				"note": "Listen Port",
+				"type": "number",
+				"val":  "8123"
+			}
+  ],
+
+"genrules": 
+{
+    "AI":{"type":"200"},
+    "AO":{"type":"520"},
+    "DI":{"type":"100"},
+    "DO":{"type":"500"},
+    "EI":{"type":"200"},
+    "EO":{"type":"800"}
+},
+
+
+"chpattern": [
+  {
+   "name": "cid",
+   "note": "Controller ID",
+   "type": "STRING",
+   "hardlevel":1
+ },
+ {
+   "name": "adr",
+   "note": "Memory Address",
+   "type": "NUMBER",
+   "hardlevel":1
+ }
+],
+
+  "actions": [
+    {}
+  ]
+}
