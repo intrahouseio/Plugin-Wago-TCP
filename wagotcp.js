@@ -36,7 +36,7 @@ var HIST = 101;
 
 // Логгирование
 // var plogger;
-var logsection = { raw: 0, format: 1, config: 1, buffer: 0, ack: 0, command: 1, connect: 1, hist: 0, select: 1 };
+var logsection = { raw: 0, format: 1, config: 1, bin: 0, json: 0, data: 0, result: 0, ack: 0, command: 1, connect: 1, hist: 0, select: 0 };
 
 // Хранение входящих данных:  iodata[cid][adr] = {ts:ts, value:v, name:n, desc:d}
 // var iodatafilename = 'iodataWIP.json';
@@ -138,7 +138,7 @@ function serverStart(port) {
         }
       }
 
-      traceMsg(showCid(c) + ' Data format: ' + format, 'format');
+      traceMsg(showCid(c) + ' Data format: ' + format+' packet len='+bdata.length, 'format');
 
       switch (format) {
         case 'bin':
@@ -158,7 +158,7 @@ function serverStart(port) {
       // Ответ
       if (result) {
         sendResult(result);
-        traceMsg(showCid(c) + ' Result: ' + result, 'format');
+        traceMsg(showCid(c) + ' Result: ' + result, 'result');
       }
     });
 
@@ -269,7 +269,7 @@ function serverStart(port) {
       // Переписать конец
       if (bdata[index]) {
         if (bdata[index] == 255) {
-          // console.log('FIN '+bdata[index].toString(16));
+
         } else {
           if (!chunk[c.myid]) {
             chunk[c.myid] = {};
@@ -303,6 +303,7 @@ function serverStart(port) {
           errMsg('Wrong delim! ' + String(delim), 'buffer');
           return;
         }
+        if (tms >=1000) tms = 0; // милисекунды не должны быть больше 1000!!!
         inarr.push({ ad: adr, v: val, ts: ts * 1000 + tms });
         return true;
       }
@@ -386,7 +387,7 @@ function serverStart(port) {
 /** Обработка команд от основного процесса
 */
 process.on('message', message => {
-  traceMsg('Command: ' + util.inspect(message), 'command');
+  // traceMsg('Command: ' + util.inspect(message), 'command');
   if (!message) return;
 
   if (typeof message == 'string') {
@@ -457,11 +458,11 @@ function configResponse(config) {
         if (!iodata[item.cid]) iodata[item.cid] = {};
         iodata[item.cid][item.adr] = { id: item.id, desc: item.desc, ts: 0 };
       } else {
-        console.log('Error channel:' + util.inspect(item) + ' Expected id, cid and adr!');
+        traceMsg('Error channel:' + util.inspect(item) + ' Expected id, cid and adr!');
       }
     });
   }
-  console.log('configResponse iodata=' + util.inspect(iodata));
+  traceMsg( util.inspect(iodata), 'config');
   next();
 }
 
@@ -495,7 +496,7 @@ function sendCommandToSocket({ id, cid, adr, value, desc }) {
   buf[11] = 255;
 
   clients[cid].write(buf);
-  traceMsg('Write to socket ' + clients[cid][chandle].fd);
+  // traceMsg('Write to socket ' + clients[cid][chandle].fd);
 }
 
 /*
@@ -603,6 +604,7 @@ function processJsonData(recstr, cid, dt) {
   if (!recobj) return;
   if (!cid) return;
 
+  traceMsg(recstr, 'json');
   if (util.isArray(recobj)) {
     // пришел массив актуальных данных
     // traceMsg('GET DATA'+util.inspect(recobj));
@@ -665,6 +667,7 @@ function fillData(inarr, current, cid) {
   var stname;
   var adr;
 
+  traceMsg(util.inspect(inarr), 'data');
   // Массив может содержать повторы по времени, нужно выбрать с мах временем
   // При этом все данные передаем для записи в БД (harr).
   for (var i = 0; i < inarr.length; i++) {
@@ -680,6 +683,8 @@ function fillData(inarr, current, cid) {
             darr.push({ id: stname, value: inarr[i].v, ts: inarr[i].ts, err: 0 });
             iodata[cid][adr].value = inarr[i].v;
             iodata[cid][adr].ts = inarr[i].ts;
+          } else {
+
           }
         }
       } else {
@@ -769,8 +774,7 @@ function traceMsg(text, section) {
     let txt = section ? section + ' ' + text : text;
     process.send({ type: 'log', txt, level: 2 });
   }
-  console.log(text);
-  console.log();
+ 
 }
 
 function errMsg(text, section) {
