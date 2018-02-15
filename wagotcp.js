@@ -609,6 +609,7 @@ function processJsonData(recstr, cid, dt) {
     // пришел массив актуальных данных
     // traceMsg('GET DATA'+util.inspect(recobj));
     traceMsg('GET DATA', 'select');
+    
     if (iodata[cid]) {
       fillData(recobj, true);
     } else {
