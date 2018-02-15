@@ -314,7 +314,7 @@ function serverStart(port) {
         if (!c.myid) {
           c.myid = getClientName(data);
           clients[c.myid] = c;
-
+          askConfig(c.myid);
           // process.send({ fun: 'connect', name: getStatusName(c.myid) });
           // process.send({ type: 'data', data:[statusState(c.myid, 1, ts)]});
         }
@@ -609,7 +609,7 @@ function processJsonData(recstr, cid, dt) {
     // пришел массив актуальных данных
     // traceMsg('GET DATA'+util.inspect(recobj));
     traceMsg('GET DATA', 'select');
-    
+
     if (iodata[cid]) {
       fillData(recobj, true);
     } else {
@@ -654,6 +654,7 @@ function processJsonData(recstr, cid, dt) {
     // Добавляем индикатор состояния
     rarr.push({ id: getStatusName(cid), desc: 'status', ts: dt, adr: '0', cid });
     // process.send({ fun: 'devlist', name: cid, list: rarr, gen: 1 });
+    traceMsg('GET channels from PLC '+util.inspect(rarr), 'json');
     process.send({ type: 'channels', data: rarr });
   }
 }
