@@ -36,7 +36,7 @@ var HIST = 101;
 
 // Логгирование
 // var plogger;
-var logsection = { raw: 0, format: 1, config: 1, bin: 0, json: 0, data: 0, result: 0, ack: 0, command: 1, connect: 1, hist: 0, select: 0 };
+var logsection = { raw: 0, format: 1, buffer:1, config: 1, bin: 0, json: 0, data: 0, result: 0, ack: 0, command: 1, connect: 1, hist: 0, select: 0 };
 
 // Хранение входящих данных:  iodata[cid][adr] = {ts:ts, value:v, name:n, desc:d}
 // var iodatafilename = 'iodataWIP.json';
