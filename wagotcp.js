@@ -36,7 +36,7 @@ var HIST = 101;
 
 // Логгирование
 // var plogger;
-var logsection = { raw: 0, format: 1, buffer:1, config: 1, bin: 0, json: 0, data: 0, result: 0, ack: 0, command: 1, connect: 1, hist: 0, select: 0 };
+var logsection = { raw: 0, in:1, out:1, format: 1, buffer:0, config: 1, json: 1, data: 0, connect: 1, hist: 0 };
 
 // Хранение входящих данных:  iodata[cid][adr] = {ts:ts, value:v, name:n, desc:d}
 // var iodatafilename = 'iodataWIP.json';
@@ -119,8 +119,8 @@ function serverStart(port) {
       var dt = Number(new Date());
       var result;
       var format;
-
-      traceMsg(showCid(c) + ' Getted data:', 'raw');
+     
+      traceMsg(showCid(c) + ' => Data packet len='+bdata.length, 'in');
       traceMsg(bdata.toString(), 'raw');
 
       if (dataChunk) {
@@ -138,8 +138,8 @@ function serverStart(port) {
         }
       }
 
-      traceMsg(showCid(c) + ' Data format: ' + format+' packet len='+bdata.length, 'format');
-
+      traceMsg('format: '+ format, 'format');
+     
       switch (format) {
         case 'bin':
           result = processBinPacket(bdata);
@@ -158,7 +158,6 @@ function serverStart(port) {
       // Ответ
       if (result) {
         sendResult(result);
-        traceMsg(showCid(c) + ' Result: ' + result, 'result');
       }
     });
 
@@ -223,8 +222,6 @@ function serverStart(port) {
       var current;
       var first;
       var one = new Buffer(16);
-
-      // traceMsg('bin packet len='+bdata.length, 'format');
 
       // Есть неполная посылка - объединить буферы
       index = 1; // указатель в bdata
@@ -314,7 +311,7 @@ function serverStart(port) {
         if (!c.myid) {
           c.myid = getClientName(data);
           clients[c.myid] = c;
-          askConfig(c.myid);
+          // askConfig(c.myid);
           // process.send({ fun: 'connect', name: getStatusName(c.myid) });
           // process.send({ type: 'data', data:[statusState(c.myid, 1, ts)]});
         }
@@ -367,13 +364,12 @@ function serverStart(port) {
         buf[0] = res;
         buf[1] = 0;
         c.write(buf);
-        traceMsg(showCid(c) + ' ACK: ' + String(res), 'ack');
+        traceMsg(showCid(c) +' <= '+ ' Result: ' + String(res), 'out');
       }
     }
   });
 
   server.listen(port, () => {
-    // 'listening' listener
     traceMsg('TCP server port:' + port + ' has bound.');
   });
 
@@ -387,7 +383,6 @@ function serverStart(port) {
 /** Обработка команд от основного процесса
 */
 process.on('message', message => {
-  // traceMsg('Command: ' + util.inspect(message), 'command');
   if (!message) return;
 
   if (typeof message == 'string') {
@@ -413,7 +408,7 @@ process.on('message', message => {
         sendCommandToSocket(message);
       }
     } catch (e) {
-      traceMsg('Error write to socket for command ' + JSON.stringify(message) + '. ' + e.message, 'command');
+      traceMsg('Command FAIL. ' + JSON.stringify(message) + '. ' + e.message);
     }
   }
 });
@@ -462,7 +457,7 @@ function configResponse(config) {
       }
     });
   }
-  traceMsg( util.inspect(iodata), 'config');
+  traceMsg( 'GET CHANNELS from server: \n'+util.inspect(iodata), 'config');
   next();
 }
 
@@ -487,7 +482,7 @@ function sendCommandToSocket({ id, cid, adr, value, desc }) {
 
   // val = getCommandVal(message.val);
 
-  traceMsg(cid + ' write to socket. adr=' + adr.toString(16) + '  type=' + type + ' val=' + value, 'command');
+  traceMsg(cid +' =>  write bin: adr=' + adr.toString(16) + '  type=' + type + ' val=' + value, 'out');
 
   buf[0] = CMD;
   buf.writeUInt32LE(adr, 1);
@@ -564,8 +559,7 @@ function sendByteToSocket(id, abyte) {
     } catch (e) {
       traceMsg(id + ' ERROR Write to socket ' + clients[id][chandle].fd + ': ' + String(buf[0]));
     }
-
-    traceMsg(id + ' Write to socket ' + clients[id][chandle].fd + ': ' + String(buf[0]));
+    traceMsg(id +' =>  write byte: ' +  + String(buf[0]), 'out');
   }
 }
 
@@ -600,16 +594,15 @@ function checkStartChar(ch) {
 function processJsonData(recstr, cid, dt) {
   var recobj;
 
+  traceMsg(recstr, 'json');
   recobj = JSON.parse(recstr);
   if (!recobj) return;
   if (!cid) return;
 
-  traceMsg(recstr, 'json');
+ 
   if (util.isArray(recobj)) {
     // пришел массив актуальных данных
-    // traceMsg('GET DATA'+util.inspect(recobj));
-    traceMsg('GET DATA', 'select');
-
+ 
     if (iodata[cid]) {
       fillData(recobj, true);
     } else {
@@ -621,14 +614,13 @@ function processJsonData(recstr, cid, dt) {
     if (!iodata[cid]) iodata[cid] = {};
 
     if (recobj.vars && util.isArray(recobj.vars)) {
-      traceMsg(cid + ' UPDATE DEVICES ' + util.inspect(recobj.vars, 'config'));
+      traceMsg(cid + ' UPDATE DEVICES \n' + util.inspect(recobj.vars, 'config'));
       fillDevlist(recobj.vars);
       // saveIodata(); // Сохранить полученную конфигурацию
     }
 
     if (recobj.hisdata) {
       traceMsg(cid + ' HISTORY DATA' + util.inspect(recobj.hisdata), 'hist');
-      traceMsg('GET HIST ', 'select');
       fillData(recobj.hisdata, false);
     }
   }
@@ -654,7 +646,7 @@ function processJsonData(recstr, cid, dt) {
     // Добавляем индикатор состояния
     rarr.push({ id: getStatusName(cid), desc: 'status', ts: dt, adr: '0', cid });
     // process.send({ fun: 'devlist', name: cid, list: rarr, gen: 1 });
-    traceMsg('GET channels from PLC '+util.inspect(rarr), 'json');
+    traceMsg('GET channels from PFC\n '+util.inspect(rarr), 'json');
     process.send({ type: 'channels', data: rarr });
   }
 }
@@ -766,14 +758,10 @@ function askConfig(cid) {
 }
 
 function traceMsg(text, section) {
-  /*
-  if (plogger && (!section || logsection[section])) {
-    plogger.write(text.toString());
-  }
-  */
 
   if (!section || logsection[section]) {
-    let txt = section ? section + ' ' + text : text;
+    // let txt = section ? section + ' ' + text : text;
+    let txt = text;
     process.send({ type: 'log', txt, level: 2 });
   }
  
