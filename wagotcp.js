@@ -81,7 +81,10 @@ function next() {
 
     case 2: // Запуск TCP сервера
       serverStart(unitParams.port);
-
+      traceMsg('send time interval set: '+unitParams.sendTimeInterval, 'out');
+      if (unitParams.sendTimeInterval > 0) {
+        setInterval(sendTimeAll, unitParams.sendTimeInterval*1000);
+      }
       step = 3;
       break;
     default:
@@ -340,7 +343,7 @@ function serverStart(port) {
           clients[c.myid] = c;
 
           if (unitParams.sendTimeInterval > 0) {
-            traceMsg('sendTimeInterval = '+unitParams.sendTimeInterval, 'out');
+       
             sendTimeToSocket(c.myid, getDateObj(new Date()));
           }
           // askConfig(c.myid);
@@ -353,16 +356,7 @@ function serverStart(port) {
       }
     }
 
-    function getDateObj(date) {
-      return {
-        year: date.getFullYear(),
-        month: date.getMonth()+1,
-        date: date.getDate(),
-        hour: date.getHours(),
-        min: date.getMinutes(),
-        sec: date.getSeconds()
-      }
-    }
+    
 
     /** Обработка неполного сообщения  **/
     function processIncompleteData(data) {
@@ -637,11 +631,18 @@ function sendByteToSocket(id, abyte) {
   }
 }
 
-function sendTimeToSocket(cid, { year, month, date, hour, min, sec }) {
-  var buf = new Buffer(13);
+function sendTimeAll() {
+   let datobj = getDateObj(new Date()); 
+   Object.keys(clients).forEach(cid => {
+    sendTimeToSocket(cid, datobj);
+   })  
+}
 
+function sendTimeToSocket(cid, { year, month, date, hour, min, sec }) {
+  
   if (!clients[cid]) return;
 
+  var buf = new Buffer(13);
   buf[0] = 230;
   buf.writeUInt16LE(year, 1);
   buf.writeUInt16LE(month, 3);
@@ -657,7 +658,7 @@ function sendTimeToSocket(cid, { year, month, date, hour, min, sec }) {
     clients[cid].write(buf);
     traceMsg(
         cid +
-          " =>  write time: " +
+          " <=  write time: " +
           year +
           " " +
           month +
@@ -883,6 +884,18 @@ function askConfig(cid) {
     astates[cid] = ts;
   }
 }
+
+function getDateObj(date) {
+    return {
+      year: date.getFullYear(),
+      month: date.getMonth()+1,
+      date: date.getDate(),
+      hour: date.getHours(),
+      min: date.getMinutes(),
+      sec: date.getSeconds()
+    }
+  }
+
 
 function traceMsg(text, section) {
   if (!section || logsection[section]) {
