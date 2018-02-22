@@ -10,7 +10,14 @@
 				"note": "Listen Port",
 				"type": "number",
 				"val":  "8123"
-			}
+            },
+            {
+				"name": "sendTimeInterval",
+				"note": "Период синхронизации времени контроллеров с сервером (сек)",
+				"type": "number",
+				"val":  "600"
+            }
+            
   ],
 
 "genrules": 
