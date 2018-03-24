@@ -1,7 +1,7 @@
 {
   "id":"wip",
   "description": "TCP server for WAGO clients",
-  "gendevices":1,
+  "gendevices":0,
   "module":"wagotcp.js",
   
   "params": [
