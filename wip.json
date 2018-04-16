@@ -1,53 +1,56 @@
 {
-  "id":"wip",
+  "id": "wip",
   "description": "TCP server for WAGO clients",
-  "gendevices":0,
-  "module":"wagotcp.js",
-  
+  "gendevices": 0,
+  "module": "wagotcp.js",
+
   "params": [
-			{
-				"name": "port",
-				"note": "Listen Port",
-				"type": "number",
-				"val":  "8123"
-            },
-            {
-				"name": "sendTimeInterval",
-				"note": "Период синхронизации времени (сек)",
-				"type": "number",
-				"val":  "600"
-            }
-            
+    {
+      "name": "port",
+      "note": "Listen Port",
+      "type": "number",
+      "val": "8123"
+    },
+    {
+      "name": "sendTimeInterval",
+      "note": "Период синхронизации времени (сек)",
+      "type": "number",
+      "val": "600"
+    }
   ],
 
-"genrules": 
-{
-    "AI":{"type":"200"},
-    "AO":{"type":"520"},
-    "DI":{"type":"100"},
-    "DO":{"type":"500"},
-    "EI":{"type":"100"},
-    "EO":{"type":"800"},
-    "status":{"type":"100"}
-},
+  "genrules": {
+    "AI": { "type": "200" },
+    "AO": { "type": "520" },
+    "DI": { "type": "100" },
+    "DO": { "type": "500" },
+    "EI": { "type": "100" },
+    "EO": { "type": "800" },
+    "status": { "type": "100" }
+  },
 
+  "chpattern": [
+    {
+      "name": "cid",
+      "note": "Controller ID",
+      "type": "STRING",
+      "hardlevel": 1
+    },
+    {
+      "name": "adr",
+      "note": "Memory Address",
+      "type": "NUMBER",
+      "hardlevel": 1
+    }
+  ],
 
-"chpattern": [
-  {
-   "name": "cid",
-   "note": "Controller ID",
-   "type": "STRING",
-   "hardlevel":1
- },
- {
-   "name": "adr",
-   "note": "Memory Address",
-   "type": "NUMBER",
-   "hardlevel":1
- }
-],
-
-  "actions": [
-    {}
+  "commands": [
+    {
+      "id": "channels",
+      "name": "Получить каналы с контроллера",
+      "reload": true,
+      "selected": true,
+      "noclose": false
+    }
   ]
 }

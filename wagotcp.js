@@ -8,14 +8,14 @@
 
 * Состояние
 * Пакет текущих данных - бинарные данные по 16 байт
-
-* Пакет архивных данных 
-
+*
+* Пакет архивных данных
+*
 * Управление
 * Бинарное переключение (on/off)
-* v1  <250><S><A><M><E><N><A><M><E>...<:><t><r><u><e><0> 
-* v2  <250><1><2><5><:><E><O><:><t><r><u><e><0> 
-**/
+* v1  <250><S><A><M><E><N><A><M><E>...<:><t><r><u><e><0>
+* v2  <250><1><2><5><:><E><O><:><t><r><u><e><0>
+*/
 
 var net = require("net");
 var util = require("util");
@@ -45,7 +45,7 @@ var logsection = {
   json: 1,
   data: 0,
   connect: 1,
-  hist: 0
+  hist: false
 };
 
 // Хранение входящих данных:  iodata[cid][adr] = {ts:ts, value:v, name:n, desc:d}
@@ -55,6 +55,8 @@ var iodata = {}; // Теперь получаем с сервера
 
 var clients = {}; // Подключенные сокеты: clients[cid] = connectedObj;
 var astates = {};
+var commands = {}; // Команды от сервера на обработке
+
 var chunk = {}; // Неполные сообщения от клиентов: { bin:[до 16 байт], data:string }
 var dataChunk = "";
 
@@ -81,9 +83,9 @@ function next() {
 
     case 2: // Запуск TCP сервера
       serverStart(unitParams.port);
-      traceMsg('send time interval set: '+unitParams.sendTimeInterval, 'out');
+      traceMsg("send time interval set: " + unitParams.sendTimeInterval, "out");
       if (unitParams.sendTimeInterval > 0) {
-        setInterval(sendTimeAll, unitParams.sendTimeInterval*1000);
+        setInterval(sendTimeAll, unitParams.sendTimeInterval * 1000);
       }
       step = 3;
       break;
@@ -95,25 +97,6 @@ function getTable(name) {
   process.send({ type: "get", tablename: name + "/" + unitId });
 }
 
-/** TCP сервер. 
-*
-*   Для сокетов используется механизм keepalive.
-*   Потеря связи с сокетом определяется через довольно большой промежуток времени (11 мин 30 сек), при этом происходит событие error, затем close. 
-*
-*   Как устанавливается этот интервал: http://tldp.org/HOWTO/TCP-Keepalive-HOWTO/usingkeepalive.html
-*     LINUX имеет опции для сокета, связанные с keepalive:
-*       tcp_keepalive_time   - период между data пакетом и первой keepalive пробой, def 7200 сек (2 часа)
-*                              Функция пакет net socket.setKeepAlive(true, 15000) переустанавливает это значение, здесь оно в мс
-*                              Фактически время до первой пробы все равно получается 75 сек, м.б. если меньше tcp_keepalive_intvl, то исп-ся он
-
-*       tcp_keepalive_intvl  - период между keepalive пробами, def 75 сек
-*       tcp_keepalive_probes - количество проб без ответа, после которой делается вывод о потере соединения, def 9
-*                              Эти два параметра модуль net НЕ УСТАНАВЛИВАЕТ?
-*                              75*(9 + 1)=11 мин 30 сек 
-*                              Можно установить их на уровне OC через sysctl для всех TCP сокетов 
-*                                 sudo sysctl -w net.ipv4.tcp_keepalive_probes=3, тогда время 3 мин 45 сек = 75*(1+3)
-*        
-**/
 function serverStart(port) {
   var server = net.createServer(c => {
     c.setKeepAlive(true, 15000);
@@ -292,8 +275,9 @@ function serverStart(port) {
 
           chunk[c.myid].bin = [];
           chunk[c.myid].bin[0] = first;
-          for (var i = index; i < bdata.length; i++)
+          for (var i = index; i < bdata.length; i++) {
             chunk[c.myid].bin.push(bdata[i]);
+          }
         }
       }
 
@@ -343,7 +327,6 @@ function serverStart(port) {
           clients[c.myid] = c;
 
           if (unitParams.sendTimeInterval > 0) {
-       
             sendTimeToSocket(c.myid, getDateObj(new Date()));
           }
           // askConfig(c.myid);
@@ -355,8 +338,6 @@ function serverStart(port) {
         return OK_ANS;
       }
     }
-
-    
 
     /** Обработка неполного сообщения  **/
     function processIncompleteData(data) {
@@ -408,7 +389,7 @@ function serverStart(port) {
         buf[0] = res;
         buf[1] = 0;
         c.write(buf);
-        traceMsg(showCid(c) + " <= " + " Result: " + String(res), "out");
+        traceMsg(showCid(c) + " <= Result: " + String(res), "out");
       }
     }
   });
@@ -470,8 +451,52 @@ function parseMessageFromServer(message) {
     case "act":
       doAct(message.data);
       break;
+
+    case "command":
+      doCommand(message);
+      break;
+
     default:
+      traceMsg("Unknown message type: " + JSON.stringify(message));
   }
+}
+
+function doCommand(message) {
+  traceMsg("Get command: " + JSON.stringify(message));
+
+  if (message.command != "channels")
+    return commandFail("Unknown command: " + message.command);
+
+  if (!message.id) return commandFail("Expected channel id!");
+
+  let cid = getCidFromChanId(message.id);
+  if (!cid) return commandFail("Invalid  channel id!");
+
+  if (!clients[cid]) return commandFail("PFC " + cid + " not connected!");
+
+  askConfig(cid);
+  commands[cid] = message;
+
+  // Здесь ответ д б после чтения конфигурации!!!
+  // Взвести также таймаут до получения ответа. Если ответа нет - сброс запроса и ответ на сервер
+  setTimeout(() => {
+    if (commands[cid]) {
+      commandFail("No response from PFC " + cid);
+      delete commands[cid];
+    }
+  }, 1000);
+
+  function commandFail(errstr) {
+    message.response = 0;
+    message.message = errstr;
+    process.send(message);
+    traceMsg(JSON.stringify(message));
+  }
+}
+
+function getCidFromChanId(chanid) {
+  //
+  return chanid.split("_").pop();
 }
 
 function doAct(data) {
@@ -487,7 +512,8 @@ function doAct(data) {
 function paramResponse(param) {
   if (typeof param == "object") {
     if (param.port) unitParams.port = param.port;
-    if (param.sendTimeInterval != undefined) unitParams.sendTimeInterval = param.sendTimeInterval;
+    if (param.sendTimeInterval != undefined)
+      unitParams.sendTimeInterval = param.sendTimeInterval;
   }
   next();
 }
@@ -618,6 +644,7 @@ function sendByteToSocket(id, abyte) {
 
     try {
       clients[id].write(buf);
+      traceMsg(id + " =>  write byte: " + String(buf[0]), "out");
     } catch (e) {
       traceMsg(
         id +
@@ -627,19 +654,17 @@ function sendByteToSocket(id, abyte) {
           String(buf[0])
       );
     }
-    traceMsg(id + " =>  write byte: " + String(buf[0]), "out");
   }
 }
 
 function sendTimeAll() {
-   let datobj = getDateObj(new Date()); 
-   Object.keys(clients).forEach(cid => {
+  let datobj = getDateObj(new Date());
+  Object.keys(clients).forEach(cid => {
     sendTimeToSocket(cid, datobj);
-   })  
+  });
 }
 
 function sendTimeToSocket(cid, { year, month, date, hour, min, sec }) {
-  
   if (!clients[cid]) return;
 
   var buf = new Buffer(13);
@@ -657,26 +682,24 @@ function sendTimeToSocket(cid, { year, month, date, hour, min, sec }) {
   try {
     clients[cid].write(buf);
     traceMsg(
-        cid +
-          " <=  write time: " +
-          year +
-          " " +
-          month +
-          " " +
-          date +
-          " " +
-          hour +
-          " " +
-          min +
-          " " +
-          sec,
-        "out"
-      );
-      
+      cid +
+        " <=  write time: " +
+        year +
+        " " +
+        month +
+        " " +
+        date +
+        " " +
+        hour +
+        " " +
+        min +
+        " " +
+        sec,
+      "out"
+    );
   } catch (e) {
     traceMsg(cid + " ERROR write time to socket " + clients[cid][chandle].fd);
   }
-  
 }
 
 /** ********************************************************************/
@@ -730,9 +753,7 @@ function processJsonData(recstr, cid, dt) {
     if (!iodata[cid]) iodata[cid] = {};
 
     if (recobj.vars && util.isArray(recobj.vars)) {
-      traceMsg(
-        cid + " UPDATE DEVICES \n" + util.inspect(recobj.vars, "config")
-      );
+      // traceMsg(cid + " UPDATE DEVICES \n" + util.inspect(recobj.vars, "config"));
       fillDevlist(recobj.vars);
       // saveIodata(); // Сохранить полученную конфигурацию
     }
@@ -770,8 +791,32 @@ function processJsonData(recstr, cid, dt) {
       cid
     });
     // process.send({ fun: 'devlist', name: cid, list: rarr, gen: 1 });
-    traceMsg("GET channels from PFC\n " + util.inspect(rarr), "json");
-    process.send({ type: "channels", data: rarr });
+    // traceMsg("GET channels from PFC\n " + util.inspect(rarr), "json");
+    traceMsg("GET channels from PFC");
+
+    // Если получили по запросу - отдать в формате type:command, command:channels
+    let msg;
+    if (commands[cid] && commands[cid].command == "channels") {
+      msg = Object.assign(
+        { unit: unitId, data: rarr, response: 1 },
+        commands[cid]
+      );
+      /*   
+      msg = {
+        uuid: commands[cid].uuid,
+        type: "command",
+        command: "channels",
+        data: rarr,
+        response: 1
+      };
+      */
+
+      delete commands[cid];
+    } else {
+      msg = { unit: unitId, type: "channels", data: rarr };
+    }
+    process.send(msg);
+    traceMsg("Send to server: " + JSON.stringify(msg, null, 2));
   }
 }
 
@@ -886,21 +931,21 @@ function askConfig(cid) {
 }
 
 function getDateObj(date) {
-    return {
-      year: date.getFullYear(),
-      month: date.getMonth()+1,
-      date: date.getDate(),
-      hour: date.getHours(),
-      min: date.getMinutes(),
-      sec: date.getSeconds()
-    }
-  }
-
+  return {
+    year: date.getFullYear(),
+    month: date.getMonth() + 1,
+    date: date.getDate(),
+    hour: date.getHours(),
+    min: date.getMinutes(),
+    sec: date.getSeconds()
+  };
+}
 
 function traceMsg(text, section) {
   if (!section || logsection[section]) {
     // let txt = section ? section + ' ' + text : text;
     let txt = text;
+    // process.send({ type: "log", txt, level: 2 });
     process.send({ type: "log", txt, level: 2 });
   }
 }
