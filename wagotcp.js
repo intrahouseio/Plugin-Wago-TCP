@@ -47,6 +47,7 @@ var logsection = {
   connect: 1,
   hist: false
 };
+var debug = 'off';
 
 // Хранение входящих данных:  iodata[cid][adr] = {ts:ts, value:v, name:n, desc:d}
 // var iodatafilename = 'iodataWIP.json';
@@ -459,6 +460,11 @@ function parseMessageFromServer(message) {
     case "command":
       doCommand(message);
       break;
+
+    case "debug":
+      debug = message.mode;
+      break;
+
 
     default:
       traceMsg("Unknown message type: " + JSON.stringify(message));
