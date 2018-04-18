@@ -19,8 +19,9 @@ module.exports = {
 
       // Взять все cid кроме текущего + принятые
       let newdata = charr.filter(item => item.cid != cid).concat(tele.data);
-
-      return { type: "channels", data: newdata };
+      
+      //return { type: "channels", data: newdata };
+      tele.data = newdata;
     }
 
     return tele;
