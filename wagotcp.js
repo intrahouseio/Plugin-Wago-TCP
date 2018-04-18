@@ -144,9 +144,13 @@ function serverStart(port) {
 
         case "json":
           result = preProcessPacket(bdata.toString(), dt);
+          // Ответ на конф-ю присылать через 100 мсек - не успевает контроллер!!
+          setTimeout(() => {
+            sendResult(result);
+          }, 100);
 
-          // result = processPacket(bdata.toString(), dt);
-          break;
+          return;
+        // break;
 
         default:
           result = ERR_ANS;
