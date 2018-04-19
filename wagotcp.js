@@ -463,6 +463,10 @@ function parseMessageFromServer(message) {
 
     case "debug":
       debug = message.mode;
+      if (debug == 'on') {
+      
+        traceMsg("Debug on. Connected PFC: "+Object.keys(clients).join(',') );
+      }
       break;
 
 
