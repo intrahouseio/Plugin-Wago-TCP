@@ -51,6 +51,13 @@
       "reload": true,
       "selected": true,
       "noclose": false
+    },
+    {
+        "id": "getdata",
+        "name": "Обновить значения всех переменных с контроллера",
+        "reload": false,
+        "selected": true,
+        "noclose": false
     }
   ]
 }

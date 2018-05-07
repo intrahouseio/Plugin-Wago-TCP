@@ -26,7 +26,10 @@ const chandle = "_handle";
 // 1 байт в сообщении контроллеру
 var OK_ANS = 200;
 var ERR_ANS = 201;
-var CMD = 250;
+var CMD = 250; // послать команду
+var GETCONF = 240;
+var SENDTIME = 230;
+var GETDATA = 220;
 
 // 1 байт входящих бинарных сообщений
 var DATA = 100;
@@ -47,7 +50,7 @@ var logsection = {
   connect: 1,
   hist: false
 };
-var debug = 'off';
+var debug = "off";
 
 // Хранение входящих данных:  iodata[cid][adr] = {ts:ts, value:v, name:n, desc:d}
 // var iodatafilename = 'iodataWIP.json';
@@ -140,6 +143,7 @@ function serverStart(port) {
 
       switch (format) {
         case "bin":
+          if (clients[c.myid].vars) clients[c.myid].vars = '';
           result = processBinPacket(bdata);
           break;
 
@@ -463,23 +467,19 @@ function parseMessageFromServer(message) {
 
     case "debug":
       debug = message.mode;
-      if (debug == 'on') {
-      
-        traceMsg("Debug on. Connected PFC: "+Object.keys(clients).join(',') );
+      if (debug == "on") {
+        traceMsg("Debug on. Connected PFC: " + Object.keys(clients).join(","));
       }
       break;
-
 
     default:
       traceMsg("Unknown message type: " + JSON.stringify(message));
   }
 }
 
+// 
 function doCommand(message) {
   traceMsg("Get command: " + JSON.stringify(message));
-
-  if (message.command != "channels")
-    return commandFail("Unknown command: " + message.command);
 
   if (!message.id) return commandFail("Expected channel id!");
 
@@ -488,17 +488,33 @@ function doCommand(message) {
 
   if (!clients[cid]) return commandFail("PFC " + cid + " not connected!");
 
-  askConfig(cid);
-  commands[cid] = message;
+  // if (message.command != "channels")
+  //  return commandFail("Unknown command: " + message.command);
+  // askConfig(cid);
+  switch (message.command) {
+    case "channels":
+      askConfig(cid);
+      // Здесь ответ д б после чтения конфигурации!!!
+      // Взвести также таймаут до получения ответа. Если ответа нет - сброс запроса и ответ на сервер
+      commands[cid] = message;
+      setTimeout(() => {
+        if (commands[cid]) {
+          commandFail("No response from PFC " + cid);
+          delete commands[cid];
+        }
+      }, 1000);
+      break;
 
-  // Здесь ответ д б после чтения конфигурации!!!
-  // Взвести также таймаут до получения ответа. Если ответа нет - сброс запроса и ответ на сервер
-  setTimeout(() => {
-    if (commands[cid]) {
-      commandFail("No response from PFC " + cid);
-      delete commands[cid];
-    }
-  }, 1000);
+    case "getdata": 
+      askData(cid); // 220
+      // Сразу отправим ответ, т к данные приду как обычно
+      process.send (Object.assign({response: 1}, message));
+      break;
+
+    default:
+      commandFail("Unknown command: " + message.command);
+  }
+  
 
   function commandFail(errstr) {
     message.response = 0;
@@ -507,6 +523,8 @@ function doCommand(message) {
     traceMsg(JSON.stringify(message));
   }
 }
+
+
 
 function getCidFromChanId(chanid) {
   //
@@ -767,8 +785,12 @@ function processJsonData(recstr, cid, dt) {
     if (!iodata[cid]) iodata[cid] = {};
 
     if (recobj.vars && util.isArray(recobj.vars)) {
-      // traceMsg(cid + " UPDATE DEVICES \n" + util.inspect(recobj.vars, "config"));
-      fillDevlist(recobj.vars);
+      
+      if (recobj.last != undefined) {
+        fillMultiPartDevlist(recobj.vars, recobj.last);
+      } else {
+        fillDevlist(recobj.vars);
+      }  
       // saveIodata(); // Сохранить полученную конфигурацию
     }
 
@@ -777,6 +799,34 @@ function processJsonData(recstr, cid, dt) {
       fillData(recobj.hisdata, false);
     }
   }
+
+  function fillMultiPartDevlist(inarr, last) {
+    if (!clients[cid]) return;
+    
+    if (!clients[cid].vars) clients[cid].vars = [];
+
+    var stname;
+    var adr;
+
+    for (var i = 0; i < inarr.length; i++) {
+      if (inarr[i].n && inarr[i].ad && inarr[i].d) {
+        stname = inarr[i].n + "_" + cid;
+        adr = String(inarr[i].ad);
+
+        // iodata[cid][adr] = { ts: 0, name: stname, desc: inarr[i].d };
+        iodata[cid][adr] = { ts: 0, id: stname, desc: inarr[i].d };
+
+        clients[cid].vars.push({ id: stname, desc: inarr[i].d, adr, cid });
+      }
+    }
+    traceMsg("GET channels from PFC (multipart)");
+
+    if (last) {
+        sendChannelsToServer(cid, clients[cid].vars );
+        clients[cid].vars = '';
+    }
+  }
+
 
   function fillDevlist(inarr) {
     var rarr = [];
@@ -790,24 +840,21 @@ function processJsonData(recstr, cid, dt) {
 
         // iodata[cid][adr] = { ts: 0, name: stname, desc: inarr[i].d };
         iodata[cid][adr] = { ts: 0, id: stname, desc: inarr[i].d };
-
-        // rarr.push({ name: stname, desc: inarr[i].d });
+;
         rarr.push({ id: stname, desc: inarr[i].d, adr, cid });
       }
     }
+    traceMsg("GET channels from PFC");
 
     // Добавляем индикатор состояния
     rarr.push({
-      id: getStatusName(cid),
-      desc: "status",
-      ts: dt,
-      adr: "0",
-      cid
-    });
-    // process.send({ fun: 'devlist', name: cid, list: rarr, gen: 1 });
-    // traceMsg("GET channels from PFC\n " + util.inspect(rarr), "json");
-    traceMsg("GET channels from PFC");
-
+        id: getStatusName(cid),
+        desc: "status",
+        ts: dt,
+        adr: "0",
+        cid
+      });
+  
     // Если получили по запросу - отдать в формате type:command, command:channels
     let msg;
     if (commands[cid] && commands[cid].command == "channels") {
@@ -815,16 +862,6 @@ function processJsonData(recstr, cid, dt) {
         { unit: unitId, data: rarr, response: 1 },
         commands[cid]
       );
-      /*   
-      msg = {
-        uuid: commands[cid].uuid,
-        type: "command",
-        command: "channels",
-        data: rarr,
-        response: 1
-      };
-      */
-
       delete commands[cid];
     } else {
       msg = { unit: unitId, type: "channels", data: rarr };
@@ -833,6 +870,33 @@ function processJsonData(recstr, cid, dt) {
     traceMsg("Send to server: " + JSON.stringify(msg, null, 2));
   }
 }
+
+function sendChannelsToServer(cid, rarr ) {
+    if (!cid || !rarr || !util.isArray(rarr)) return;
+
+    // Добавляем индикатор состояния
+    rarr.push({
+        id: getStatusName(cid),
+        desc: "status",
+        adr: "0",
+        cid
+      });
+
+    // Если получили по запросу - отдать в формате type:command, command:channels
+    let msg;
+    if (commands[cid] && commands[cid].command == "channels") {
+      msg = Object.assign(
+        { unit: unitId, data: rarr, response: 1 },
+        commands[cid]
+      );
+      delete commands[cid];
+    } else {
+      msg = { unit: unitId, type: "channels", data: rarr };
+    }
+    process.send(msg);
+    traceMsg("Send to server: " + JSON.stringify(msg, null, 2));  
+}
+
 
 function statusState(cid, value, dt) {
   return { id: getStatusName(cid), value, ts: dt };
@@ -942,6 +1006,11 @@ function askConfig(cid) {
     sendByteToSocket(cid, 240); // askconfig
     astates[cid] = ts;
   }
+}
+
+function askData(cid) {
+  // Передать запрос на данные
+  sendByteToSocket(cid, 220);
 }
 
 function getDateObj(date) {
