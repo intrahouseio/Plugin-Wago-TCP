@@ -143,7 +143,7 @@ function serverStart(port) {
 
       switch (format) {
         case "bin":
-          if (clients[c.myid].vars) clients[c.myid].vars = '';
+          if (clients[c.myid].vars) clients[c.myid].vars = "";
           result = processBinPacket(bdata);
           break;
 
@@ -477,7 +477,7 @@ function parseMessageFromServer(message) {
   }
 }
 
-// 
+//
 function doCommand(message) {
   traceMsg("Get command: " + JSON.stringify(message));
 
@@ -502,19 +502,18 @@ function doCommand(message) {
           commandFail("No response from PFC " + cid);
           delete commands[cid];
         }
-      }, 1000);
+      }, 2000);
       break;
 
-    case "getdata": 
+    case "getdata":
       askData(cid); // 220
       // Сразу отправим ответ, т к данные приду как обычно
-      process.send (Object.assign({response: 1}, message));
+      process.send(Object.assign({ response: 1 }, message));
       break;
 
     default:
       commandFail("Unknown command: " + message.command);
   }
-  
 
   function commandFail(errstr) {
     message.response = 0;
@@ -523,8 +522,6 @@ function doCommand(message) {
     traceMsg(JSON.stringify(message));
   }
 }
-
-
 
 function getCidFromChanId(chanid) {
   //
@@ -785,12 +782,11 @@ function processJsonData(recstr, cid, dt) {
     if (!iodata[cid]) iodata[cid] = {};
 
     if (recobj.vars && util.isArray(recobj.vars)) {
-      
       if (recobj.last != undefined) {
         fillMultiPartDevlist(recobj.vars, recobj.last);
       } else {
         fillDevlist(recobj.vars);
-      }  
+      }
       // saveIodata(); // Сохранить полученную конфигурацию
     }
 
@@ -802,7 +798,7 @@ function processJsonData(recstr, cid, dt) {
 
   function fillMultiPartDevlist(inarr, last) {
     if (!clients[cid]) return;
-    
+
     if (!clients[cid].vars) clients[cid].vars = [];
 
     var stname;
@@ -822,11 +818,10 @@ function processJsonData(recstr, cid, dt) {
     traceMsg("GET channels from PFC (multipart)");
 
     if (last) {
-        sendChannelsToServer(cid, clients[cid].vars );
-        clients[cid].vars = '';
+      sendChannelsToServer(cid, clients[cid].vars);
+      clients[cid].vars = "";
     }
   }
-
 
   function fillDevlist(inarr) {
     var rarr = [];
@@ -840,7 +835,6 @@ function processJsonData(recstr, cid, dt) {
 
         // iodata[cid][adr] = { ts: 0, name: stname, desc: inarr[i].d };
         iodata[cid][adr] = { ts: 0, id: stname, desc: inarr[i].d };
-;
         rarr.push({ id: stname, desc: inarr[i].d, adr, cid });
       }
     }
@@ -848,13 +842,13 @@ function processJsonData(recstr, cid, dt) {
 
     // Добавляем индикатор состояния
     rarr.push({
-        id: getStatusName(cid),
-        desc: "status",
-        ts: dt,
-        adr: "0",
-        cid
-      });
-  
+      id: getStatusName(cid),
+      desc: "status",
+      ts: dt,
+      adr: "0",
+      cid
+    });
+
     // Если получили по запросу - отдать в формате type:command, command:channels
     let msg;
     if (commands[cid] && commands[cid].command == "channels") {
@@ -871,32 +865,31 @@ function processJsonData(recstr, cid, dt) {
   }
 }
 
-function sendChannelsToServer(cid, rarr ) {
-    if (!cid || !rarr || !util.isArray(rarr)) return;
+function sendChannelsToServer(cid, rarr) {
+  if (!cid || !rarr || !util.isArray(rarr)) return;
 
-    // Добавляем индикатор состояния
-    rarr.push({
-        id: getStatusName(cid),
-        desc: "status",
-        adr: "0",
-        cid
-      });
+  // Добавляем индикатор состояния
+  rarr.push({
+    id: getStatusName(cid),
+    desc: "status",
+    adr: "0",
+    cid
+  });
 
-    // Если получили по запросу - отдать в формате type:command, command:channels
-    let msg;
-    if (commands[cid] && commands[cid].command == "channels") {
-      msg = Object.assign(
-        { unit: unitId, data: rarr, response: 1 },
-        commands[cid]
-      );
-      delete commands[cid];
-    } else {
-      msg = { unit: unitId, type: "channels", data: rarr };
-    }
-    process.send(msg);
-    traceMsg("Send to server: " + JSON.stringify(msg, null, 2));  
+  // Если получили по запросу - отдать в формате type:command, command:channels
+  let msg;
+  if (commands[cid] && commands[cid].command == "channels") {
+    msg = Object.assign(
+      { unit: unitId, data: rarr, response: 1 },
+      commands[cid]
+    );
+    delete commands[cid];
+  } else {
+    msg = { unit: unitId, type: "channels", data: rarr };
+  }
+  process.send(msg);
+  traceMsg("Send to server: " + JSON.stringify(msg, null, 2));
 }
-
 
 function statusState(cid, value, dt) {
   return { id: getStatusName(cid), value, ts: dt };
@@ -929,7 +922,6 @@ function fillData(inarr, current, cid) {
             });
             iodata[cid][adr].value = inarr[i].v;
             iodata[cid][adr].ts = inarr[i].ts;
-          } else {
           }
         }
       } else {
@@ -942,10 +934,25 @@ function fillData(inarr, current, cid) {
   if (current) {
     var dt = Number(new Date());
     darr.push({ id: getStatusName(cid), value: 1, ts: dt });
+    /*
+    traceMsg(
+        "Send current array, len=" +
+          darr.length +
+          " \nFirst:" +util.inspect(darr[0])
+      );
+    */  
+    process.send({ type: "data", data: darr });
+  } else {
+    traceMsg(
+      "HISTDATA, len=" +
+        harr.length +
+        " \nFirst:" +
+        util.inspect(harr[0])
+    );
+    process.send({ type: "histdata", data: harr });
   }
 
   // process.send({ fun: 'data', list: darr, hist: harr });
-  process.send({ type: "data", data: darr });
 }
 
 function getStatusName(cid) {
@@ -1015,12 +1022,12 @@ function askData(cid) {
 
 function getDateObj(date) {
   return {
-    year: date.getFullYear(),
-    month: date.getMonth() + 1,
-    date: date.getDate(),
-    hour: date.getHours(),
-    min: date.getMinutes(),
-    sec: date.getSeconds()
+    year: date.getUTCFullYear(),
+    month: date.getUTCMonth() + 1,
+    date: date.getUTCDate(),
+    hour: date.getUTCHours(),
+    min: date.getUTCMinutes(),
+    sec: date.getUTCSeconds()
   };
 }
 
