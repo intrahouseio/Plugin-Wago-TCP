@@ -294,7 +294,7 @@ function serverStart(port) {
       return OK_ANS;
 
       function processOne() {
-        if (one[0] == 255) return true;
+        // if (one[0] == 255) return true;
 
         let adr = one.readUInt32LE(0);
         let val = one.readFloatLE(4);
