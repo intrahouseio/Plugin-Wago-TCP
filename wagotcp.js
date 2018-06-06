@@ -971,10 +971,11 @@ function getClientName(recstr) {
       if (result.indexOf(":")) {
         // Формат XX:YY:ZZ
         result = result.split(":").join("");
-      } else {
-        result = result.replace(/\s+/, ""); // убрать пробел
-      }
-      traceMsg("client name " + result, "connect");
+      } 
+
+     result = result.replace(/\s+/g, ""); // убрать все пробелы
+
+     traceMsg("client name " + result, "connect");
     }
   } catch (e) {
     traceMsg("client name ERROR!!");
