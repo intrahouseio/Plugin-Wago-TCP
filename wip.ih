@@ -3,5 +3,5 @@
     "description":"TCP сервер для WAGO контроллеров",
     "url":"",
     "cross":true,
-	"version":"1.0.18"
+	"version":"1.0.19"
 }

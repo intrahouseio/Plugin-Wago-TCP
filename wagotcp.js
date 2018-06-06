@@ -973,6 +973,7 @@ function getClientName(recstr) {
         result = result.split(":").join("");
       } 
 
+      
      result = result.replace(/\s+/g, ""); // убрать все пробелы
 
      traceMsg("client name " + result, "connect");
