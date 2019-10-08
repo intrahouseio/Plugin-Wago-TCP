@@ -27,6 +27,7 @@ const chandle = '_handle';
 var OK_ANS = 200;
 var ERR_ANS = 201;
 var CMD = 250; // послать команду
+var GCMD = 251; // послать групповую команду
 var GETCONF = 240;
 var SENDTIME = 230;
 var GETDATA = 220;
@@ -91,8 +92,7 @@ function next() {
       if (unitParams.sendTimeInterval > 0) {
         setInterval(sendTimeAll, unitParams.sendTimeInterval * 1000);
       }
-      // Отправка команд не чаще 100 мс
-      setInterval(sendCommands, 100);
+
 
       step = 3;
       break;
@@ -518,21 +518,48 @@ function getCidFromChanId(chanid) {
 function doAct(data) {
   if (!data || !util.isArray(data) || data.length <= 0) return;
 
-  // {id, cid, adr, val}
+  // Группировать по контроллерам
+  const cset = {};
   data.forEach(item => {
-    if (typeof item.cid == undefined) {
-      throw { message: ' Invalid command cid! Channel ' + item.id };
-    }
-    if (clients[item.cid]) {
-      clients[item.cid].acts.push(item);
-      traceMsg(
-        item.cid + ' =>  push adr=' + item.adr.toString(16) + '  desc=' + item.desc + ' val=' + item.value,
-        'out'
-      );
-    } else traceMsg('MISSING client ' + item.cid, 'out');
+    // item : {id, cid, adr, val}
+    try {
+      const id = item.id;
+      if (item.cid == undefined) throw { message: ' Invalid command cid! Channel ' + id };
+      if (item.adr == undefined) throw { message: ' Invalid command adr! Channel ' + id };
+      if (item.value == undefined) throw { message: ' Invalid command value! Channel ' + id };
+      if (!clients[item.cid]) throw { message: ' Client is not connected: ' + cid };
+      item.type = getTypeByteByDesc(item.desc);
 
-    // sendCommandToSocket(item);
+      clients[item.cid].acts.push(item);
+      cset[item.cid] = 1;
+    } catch (e) {
+      traceMsg('FAIL Command ' + JSON.stringify(item) + ': ' + e.message);
+    }
   });
+
+  // Если таймер уже взведен - ничего не делаем, просто накапливаем команды
+  Object.keys(cset).forEach(cid => {
+    if (clients[cid] && !clients[cid].timerId) {
+      sendCommands(cid);
+    }
+  });
+}
+
+function sendCommands(cid) {
+  // traceMsg('sendCommands start' );
+  if (!clients[cid]) return;
+
+  if (clients[cid].acts && clients[cid].acts.length > 0) {
+    if (clients[cid].acts.length == 1) {
+      sendCommandToSocket(clients[cid].acts[0]);
+    } else sendGCommandToSocket(cid, clients[cid].acts);
+
+    // Взвести таймер для следующей отправки
+    clients[cid].timerId = setTimeout(sendCommands, 100, cid);
+  } else {
+    clients[cid].timerId = 0;
+  }
+  clients[cid].acts = [];
 }
 
 // Сервер прислал параметры - взять которые нужны
@@ -565,27 +592,38 @@ function configResponse(config) {
  * Binary format: <1byte CMD><4bytes adr><4bytes val><2byte type><FF>
  *  {id, cid, adr, val}
  **/
-function sendCommandToSocket({ id, cid, adr, value, desc }) {
-  if (typeof cid == undefined) throw { message: ' Invalid command cid! Channel ' + id };
-  if (typeof adr == undefined) throw { message: ' Invalid command adr! Channel ' + id };
-  if (typeof value == undefined) throw { message: ' Invalid command value! Channel ' + id };
-
-  var type;
-  var buf = new Buffer(12);
-
+function sendCommandToSocket({ id, cid, adr, value, type }) {
   if (!clients[cid]) throw { message: ' Client is not connected: ' + cid };
 
-  type = getTypeByteByDesc(desc);
-  traceMsg(cid + ' =>  write bin: adr=' + adr.toString(16) + '  type=' + type + ' val=' + value, 'out');
-
+  const buf = new Buffer(12);
   buf[0] = CMD;
   buf.writeUInt32LE(adr, 1);
   buf.writeFloatLE(value, 5);
   buf.writeUInt16LE(type, 9);
   buf[11] = 255;
+  traceMsg(cid + ' <=  write bin: adr=' + adr.toString(16) + '  type=' + type + ' val=' + value, 'out');
 
   clients[cid].write(buf);
   // traceMsg('Write to socket ' + clients[cid][chandle].fd);
+}
+
+function sendGCommandToSocket(cid, data) {
+  if (!clients[cid]) throw { message: ' Client is not connected: ' + cid };
+
+  const buf = new Buffer(2 + data.length * 10);
+
+  buf[0] = GCMD;
+  buf[1] = data.length;
+  data.forEach((item, idx) => {
+    buf.writeUInt32LE(item.adr, idx * 10 + 2);
+    buf.writeFloatLE(item.value, idx * 10 + 6);
+    buf.writeUInt16LE(item.type, idx * 10 + 10);
+    traceMsg(cid + ' <=  group write bin: adr=' + item.adr.toString(16) + '  type=' + item.type + ' val=' + item.value, 'out');
+  });
+  buf[2+data.length*10] = 255;
+
+  clients[cid].write(buf);
+  // traceMsg('GROUP Write to socket ' + clients[cid][chandle].fd);
 }
 
 function getTypeByteByDesc(desc) {
@@ -597,6 +635,7 @@ function getTypeByteByDesc(desc) {
     case 'EO':
       return 5;
     default:
+      return 0;
   }
 }
 
@@ -624,16 +663,6 @@ function sendTimeAll() {
   });
 }
 
-function sendCommands() {
-  Object.keys(clients).forEach(cid => {
-    if (clients[cid].acts.length > 0) {
-      const item = clients[cid].acts.shift();
-      sendCommandToSocket(item);
-      // traceMsg(cid + ' Send command ' + util.inspect(item), 'out');
-    }
-  });
-}
-
 function sendTimeToSocket(cid, { year, month, date, hour, min, sec }) {
   if (!clients[cid]) return;
 
@@ -647,7 +676,7 @@ function sendTimeToSocket(cid, { year, month, date, hour, min, sec }) {
   buf.writeUInt16LE(sec, 11);
   //buf[11] = 255;
 
-  clients[cid].write(buf);
+  // clients[cid].write(buf);
 
   try {
     clients[cid].write(buf);
@@ -890,7 +919,6 @@ function getClientName(recstr) {
 
   return result;
 }
-
 
 // Запрашивать не чаще чем раз в 10 сек
 function askConfig(cid) {
