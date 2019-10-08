@@ -91,6 +91,9 @@ function next() {
       if (unitParams.sendTimeInterval > 0) {
         setInterval(sendTimeAll, unitParams.sendTimeInterval * 1000);
       }
+      // Отправка команд не чаще 100 мс
+      setInterval(sendCommands, 100);
+
       step = 3;
       break;
     default:
@@ -110,18 +113,11 @@ function serverStart(port) {
       traceMsg(showCid(c) + ' client is idle', 'raw');
     });
 
-    // Отправка команд - не чаще чем раз в 200 мсек
-    c.acts = [];
-    c.setTimeout(200, () => {
-      if (c.acts.length > 0) {
-        const item = c.acts.shift();
-        sendCommandToSocket(item);
-        traceMsg(showCid(c) + ' Send command ' + util.inspect(item), 'out');
-      }
-    });
-
     // Отключить буферизацию при записи
     c.setNoDelay(true);
+
+    // Буфер команд
+    c.acts = [];
 
     traceMsg('client connected. handle= ' + c[chandle].fd, 'connect');
 
@@ -527,7 +523,14 @@ function doAct(data) {
     if (typeof item.cid == undefined) {
       throw { message: ' Invalid command cid! Channel ' + item.id };
     }
-    clients[item.cid].acts.push(item);
+    if (clients[item.cid]) {
+      clients[item.cid].acts.push(item);
+      traceMsg(
+        item.cid + ' =>  push adr=' + item.adr.toString(16) + '  desc=' + item.desc + ' val=' + item.value,
+        'out'
+      );
+    } else traceMsg('MISSING client ' + item.cid, 'out');
+
     // sendCommandToSocket(item);
   });
 }
@@ -572,13 +575,7 @@ function sendCommandToSocket({ id, cid, adr, value, desc }) {
 
   if (!clients[cid]) throw { message: ' Client is not connected: ' + cid };
 
-  // по названию найти адрес
-
-  // adr = getAdr(message.id, message.dn + '_' + message.id);
   type = getTypeByteByDesc(desc);
-
-  // val = getCommandVal(message.val);
-
   traceMsg(cid + ' =>  write bin: adr=' + adr.toString(16) + '  type=' + type + ' val=' + value, 'out');
 
   buf[0] = CMD;
@@ -590,46 +587,6 @@ function sendCommandToSocket({ id, cid, adr, value, desc }) {
   clients[cid].write(buf);
   // traceMsg('Write to socket ' + clients[cid][chandle].fd);
 }
-
-/*
-function getCommandVal(val) {
-  if (val === 'true') {
-    return 1;
-  }
-
-  if (val === 'false') {
-    return 0;
-  }
-
-  if (!isNaN(val)) {
-    return Number(val);
-  }
-}
-
-function getAdr(cid, name) {
-  for (var adr in iodata[cid]) {
-    if (iodata[cid][adr].id == name) {
-      return adr;
-    }
-  }
-}
-
-function getTypeByte(cid, adr) {
-  if (!iodata || !iodata[cid] || !iodata[cid][adr]) {
-    return;
-  }
-
-  switch (iodata[cid][adr].desc) {
-    case 'DO':
-      return 1;
-    case 'AO':
-      return 3;
-    case 'EO':
-      return 5;
-    default:
-  }
-}
-*/
 
 function getTypeByteByDesc(desc) {
   switch (desc) {
@@ -664,6 +621,16 @@ function sendTimeAll() {
   let datobj = getDateObj(new Date());
   Object.keys(clients).forEach(cid => {
     sendTimeToSocket(cid, datobj);
+  });
+}
+
+function sendCommands() {
+  Object.keys(clients).forEach(cid => {
+    if (clients[cid].acts.length > 0) {
+      const item = clients[cid].acts.shift();
+      sendCommandToSocket(item);
+      // traceMsg(cid + ' Send command ' + util.inspect(item), 'out');
+    }
   });
 }
 
@@ -886,14 +853,6 @@ function fillData(inarr, current, cid) {
   if (current) {
     var dt = Number(new Date());
     darr.push({ id: getStatusName(cid), value: 1, ts: dt });
-    /*
-    traceMsg(
-        "Send current array, len=" +
-          darr.length +
-          " \nFirst:" +util.inspect(darr[0])
-      );
-    */
-
     process.send({ type: 'data', data: darr });
   } else {
     traceMsg('HISTDATA, len=' + harr.length + ' \nFirst:' + util.inspect(harr[0]));
@@ -932,27 +891,6 @@ function getClientName(recstr) {
   return result;
 }
 
-// Загрузить сохраненную конфигурацию
-/*
-function restoreIodata() {
-  var data;
-  var  result = {};
-
-  if (fs.existsSync(iodatafilename)) {
-    try {
-      data = fs.readFileSync(iodatafilename,  'utf8');
-      result = JSON.parse(data);
-    } catch (e) {
-      traceMsg('Invalid file ' + iodatafilename);
-    }
-  }
-  return result;
-}
-
-function saveIodata() {
-  fs.writeFileSync(iodatafilename, JSON.stringify(iodata),'utf8');
-}
-*/
 
 // Запрашивать не чаще чем раз в 10 сек
 function askConfig(cid) {
