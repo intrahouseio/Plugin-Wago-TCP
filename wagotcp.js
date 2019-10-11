@@ -1,44 +1,52 @@
 /**
-* TCP сервер для контроллеров WAGO
-* wtcp4.js - Version 4. Бинарные данные
-*
-* Входящие данные c контроллера:
-* Пакет с описанием переменных
-* { name:wagoname, vars:[{n:"AX_1", d:"AI", ad:12345 },.. ad- адрес переменной
+ * TCP сервер для контроллеров WAGO
+ * wtcp4.js - Version 4. Бинарные данные
+ *
+ * Входящие данные c контроллера:
+ * Пакет с описанием переменных
+ * { name:wagoname, vars:[{n:"AX_1", d:"AI", ad:12345 },.. ad- адрес переменной
+ *
+ * Если переменных много - возможно несколько пакетов с описанием подряд
+ * В этом случае каждый пакет дополнительно содержит свойство last
+ * { name:wagoname, last:0, vars:[{n:"AX_1", d:"AI", ad:12345 }.... - не последний пакет
+ * { name:wagoname, last:1, vars:[{n:"AX_99", d:"AI", ad:56785 }.... - последний пакет
+ *
+ *
+ * Пакет текущих значений - бинарные данные по 16 байт
+ * <1byte DATA=100><4bytes adr><4bytes val><4bytes timestamp (sec)><2bytes msec><FF><FF>
+ * Пакет архивных данных
+ * <1byte HIST=101><4bytes adr><4bytes val><4bytes timestamp (sec)><2bytes msec><FF><FF>
+ *
+ * Управление
+ * Одиночная команда
+ *  <1byte CMD=250><4bytes adr><4bytes val><2byte type><FF>
+ * Групповая команда (несколько команд подряд)
+ *  <1byte GCMD=251><1byte счетчик команд(по 10b)><4bytes adr><4bytes val><2bytes type><4bytes adr><4bytes val><2byte type>....<FF>
+ *
+ * Передать время на контроллер
+ * <1byte SENDTIME=230><2bytes Year><2bytes Month><2bytes date><2bytes hour><2bytes min><2bytes sec>
+ *
+ */
 
-* Состояние
-* Пакет текущих данных - бинарные данные по 16 байт
-*
-* Пакет архивных данных
-*
-* Управление
-* Бинарное переключение (on/off)
-* v1  <250><S><A><M><E><N><A><M><E>...<:><t><r><u><e><0>
-* v2  <250><1><2><5><:><E><O><:><t><r><u><e><0>
-*/
-
-var net = require('net');
-var util = require('util');
-// var fs = require('fs');
+const net = require('net');
+const util = require('util');
 
 const chandle = '_handle';
 
-// 1 байт в сообщении контроллеру
-var OK_ANS = 200;
-var ERR_ANS = 201;
-var CMD = 250; // послать команду
-var GCMD = 251; // послать групповую команду
-var GETCONF = 240;
-var SENDTIME = 230;
-var GETDATA = 220;
-
-// 1 байт входящих бинарных сообщений
+// Первый байт входящих бинарных сообщений
 var DATA = 100;
 var HIST = 101;
-// var DATASIZE = 16; // размер фрагмента пакета, содержащего одно сообщение
+
+// Первый байт в сообщении контроллеру
+var OK_ANS = 200; // Ответ ОК  1 байт
+var ERR_ANS = 201; // Ответ ERR  1 байт
+var CMD = 250; // послать команду  1+10 байт
+var GCMD = 251; // послать групповую команду 2+10*n байт
+var GETCONF = 240; // запрос конфигурации 1 байт
+var SENDTIME = 230; // установка времени 1+12 байт
+var GETDATA = 220; // запрос данных 1 байт
 
 // Логгирование
-// var plogger;
 var logsection = {
   raw: 0,
   in: 1,
@@ -54,8 +62,6 @@ var logsection = {
 var debug = 'off';
 
 // Хранение входящих данных:  iodata[cid][adr] = {ts:ts, value:v, name:n, desc:d}
-// var iodatafilename = 'iodataWIP.json';
-// var iodata = restoreIodata();
 var iodata = {}; // Теперь получаем с сервера
 
 var clients = {}; // Подключенные сокеты: clients[cid] = connectedObj;
@@ -92,8 +98,6 @@ function next() {
       if (unitParams.sendTimeInterval > 0) {
         setInterval(sendTimeAll, unitParams.sendTimeInterval * 1000);
       }
-
-
       step = 3;
       break;
     default:
@@ -159,15 +163,12 @@ function serverStart(port) {
           setTimeout(() => {
             sendResult(result);
           }, 100);
-
           return;
-        // break;
 
         default:
           result = ERR_ANS;
       }
 
-      // Ответ
       if (result) {
         sendResult(result);
       }
@@ -193,9 +194,14 @@ function serverStart(port) {
         // Обработка частичной строки
         result = ERR_ANS;
       }
-
-      // result = ERR_ANS;
       return result;
+    }
+
+    function sendResult(res) {
+      c.resultToSend = res;
+      if (!c.timerId) {
+        sending(c.myid);
+      }
     }
 
     function getPacketFormat(ch) {
@@ -329,9 +335,6 @@ function serverStart(port) {
           if (unitParams.sendTimeInterval > 0) {
             sendTimeToSocket(c.myid, getDateObj(new Date()));
           }
-          // askConfig(c.myid);
-          // process.send({ fun: 'connect', name: getStatusName(c.myid) });
-          // process.send({ type: 'data', data:[statusState(c.myid, 1, ts)]});
         }
 
         processJsonData(data, c.myid, ts);
@@ -366,26 +369,12 @@ function serverStart(port) {
      **/
     function connectionFinished() {
       if (c.myid) {
-        // process.send({ fun: 'disconnect', name: getStatusName(c.myid) });
         process.send({
           type: 'data',
           data: [statusState(c.myid, 0, Date.now())]
         });
 
         // delete clients[c.myid];  - Перенесено в disconnect
-      }
-    }
-
-    /** Передать ответ - 1 байт **/
-    function sendResult(res) {
-      var buf;
-
-      if (res) {
-        buf = new Buffer(2);
-        buf[0] = res;
-        buf[1] = 0;
-        c.write(buf);
-        traceMsg(showCid(c) + ' <= Result: ' + String(res), 'out');
       }
     }
   });
@@ -475,9 +464,6 @@ function doCommand(message) {
 
   if (!clients[cid]) return commandFail('PFC ' + cid + ' not connected!');
 
-  // if (message.command != "channels")
-  //  return commandFail("Unknown command: " + message.command);
-  // askConfig(cid);
   switch (message.command) {
     case 'channels':
       askConfig(cid);
@@ -494,7 +480,7 @@ function doCommand(message) {
 
     case 'getdata':
       askData(cid); // GETDATA
-      // Сразу отправим ответ, т к данные приду как обычно
+      // Сразу отправим ответ, т к данные придут как обычно
       process.send(Object.assign({ response: 1 }, message));
       break;
 
@@ -511,7 +497,6 @@ function doCommand(message) {
 }
 
 function getCidFromChanId(chanid) {
-  //
   return chanid.split('_').pop();
 }
 
@@ -527,7 +512,7 @@ function doAct(data) {
       if (item.cid == undefined) throw { message: ' Invalid command cid! Channel ' + id };
       if (item.adr == undefined) throw { message: ' Invalid command adr! Channel ' + id };
       if (item.value == undefined) throw { message: ' Invalid command value! Channel ' + id };
-      if (!clients[item.cid]) throw { message: ' Client is not connected: ' + cid };
+      if (!clients[item.cid]) throw { message: ' Client is not connected: ' + item.cid };
       item.type = getTypeByteByDesc(item.desc);
 
       clients[item.cid].acts.push(item);
@@ -540,26 +525,32 @@ function doAct(data) {
   // Если таймер уже взведен - ничего не делаем, просто накапливаем команды
   Object.keys(cset).forEach(cid => {
     if (clients[cid] && !clients[cid].timerId) {
-      sendCommands(cid);
+      sending(cid);
     }
   });
 }
 
-function sendCommands(cid) {
-  // traceMsg('sendCommands start' );
+function sending(cid) {
   if (!clients[cid]) return;
 
-  if (clients[cid].acts && clients[cid].acts.length > 0) {
-    if (clients[cid].acts.length == 1) {
-      sendCommandToSocket(clients[cid].acts[0]);
-    } else sendGCommandToSocket(cid, clients[cid].acts);
-
+  if (clients[cid].resultToSend) {
+    sendResultToSocket(cid, clients[cid].resultToSend);
+    clients[cid].resultToSend = 0;
     // Взвести таймер для следующей отправки
-    clients[cid].timerId = setTimeout(sendCommands, 100, cid);
+    clients[cid].timerId = setTimeout(sending, 100, cid);
   } else {
-    clients[cid].timerId = 0;
+    if (clients[cid].acts && clients[cid].acts.length > 0) {
+      if (clients[cid].acts.length == 1) {
+        sendCommandToSocket(clients[cid].acts[0]);
+      } else sendGCommandToSocket(cid, clients[cid].acts);
+
+      // Взвести таймер для следующей отправки
+      clients[cid].timerId = setTimeout(sending, 100, cid);
+    } else {
+      clients[cid].timerId = 0;
+    }
+    clients[cid].acts = [];
   }
-  clients[cid].acts = [];
 }
 
 // Сервер прислал параметры - взять которые нужны
@@ -588,11 +579,25 @@ function configResponse(config) {
   next();
 }
 
+/** Передать ответ - 1 байт **/
+function sendResultToSocket(cid, res) {
+  if (!clients[cid]) throw { message: ' Client is not connected: ' + cid };
+
+  var buf;
+  if (res) {
+    buf = new Buffer(2);
+    buf[0] = res;
+    buf[1] = 0;
+    traceMsg(cid + ' <= Result: ' + String(res), 'out');
+    clients[cid].write(buf);
+  }
+}
+
 /**
  * Binary format: <1byte CMD><4bytes adr><4bytes val><2byte type><FF>
  *  {id, cid, adr, val}
  **/
-function sendCommandToSocket({ id, cid, adr, value, type }) {
+function sendCommandToSocket({ cid, adr, value, type }) {
   if (!clients[cid]) throw { message: ' Client is not connected: ' + cid };
 
   const buf = new Buffer(12);
@@ -601,10 +606,9 @@ function sendCommandToSocket({ id, cid, adr, value, type }) {
   buf.writeFloatLE(value, 5);
   buf.writeUInt16LE(type, 9);
   buf[11] = 255;
-  traceMsg(cid + ' <=  write bin: adr=' + adr.toString(16) + '  type=' + type + ' val=' + value, 'out');
 
+  traceMsg(cid + ' <= write bin: ' + CMD + ' adr=' + adr.toString(16) + '  type=' + type + ' val=' + value, 'out');
   clients[cid].write(buf);
-  // traceMsg('Write to socket ' + clients[cid][chandle].fd);
 }
 
 function sendGCommandToSocket(cid, data) {
@@ -618,12 +622,14 @@ function sendGCommandToSocket(cid, data) {
     buf.writeUInt32LE(item.adr, idx * 10 + 2);
     buf.writeFloatLE(item.value, idx * 10 + 6);
     buf.writeUInt16LE(item.type, idx * 10 + 10);
-    traceMsg(cid + ' <=  group write bin: adr=' + item.adr.toString(16) + '  type=' + item.type + ' val=' + item.value, 'out');
+    traceMsg(
+      cid + ' <= write bin: ' + GCMD + ' adr=' + item.adr.toString(16) + '  type=' + item.type + ' val=' + item.value,
+      'out'
+    );
   });
-  buf[2+data.length*10] = 255;
+  buf[2 + data.length * 10] = 255;
 
   clients[cid].write(buf);
-  // traceMsg('GROUP Write to socket ' + clients[cid][chandle].fd);
 }
 
 function getTypeByteByDesc(desc) {
@@ -676,8 +682,6 @@ function sendTimeToSocket(cid, { year, month, date, hour, min, sec }) {
   buf.writeUInt16LE(sec, 11);
   //buf[11] = 255;
 
-  // clients[cid].write(buf);
-
   try {
     clients[cid].write(buf);
     traceMsg(cid + ' <=  write time: ' + year + ' ' + month + ' ' + date + ' ' + hour + ' ' + min + ' ' + sec, 'out');
@@ -724,7 +728,6 @@ function processJsonData(recstr, cid, dt) {
 
   if (util.isArray(recobj)) {
     // пришел массив актуальных данных
-
     if (iodata[cid]) {
       fillData(recobj, true);
     } else {
@@ -741,7 +744,6 @@ function processJsonData(recstr, cid, dt) {
       } else {
         fillDevlist(recobj.vars);
       }
-      // saveIodata(); // Сохранить полученную конфигурацию
     }
 
     if (recobj.hisdata) {
@@ -763,9 +765,7 @@ function processJsonData(recstr, cid, dt) {
         stname = inarr[i].n + '_' + cid;
         adr = String(inarr[i].ad);
 
-        // iodata[cid][adr] = { ts: 0, name: stname, desc: inarr[i].d };
         iodata[cid][adr] = { ts: 0, id: stname, desc: inarr[i].d };
-
         clients[cid].vars.push({ id: stname, desc: inarr[i].d, adr, cid });
       }
     }
@@ -787,7 +787,6 @@ function processJsonData(recstr, cid, dt) {
         stname = inarr[i].n + '_' + cid;
         adr = String(inarr[i].ad);
 
-        // iodata[cid][adr] = { ts: 0, name: stname, desc: inarr[i].d };
         iodata[cid][adr] = { ts: 0, id: stname, desc: inarr[i].d };
         rarr.push({ id: stname, desc: inarr[i].d, adr, cid });
       }
@@ -887,8 +886,6 @@ function fillData(inarr, current, cid) {
     traceMsg('HISTDATA, len=' + harr.length + ' \nFirst:' + util.inspect(harr[0]));
     process.send({ type: 'histdata', data: harr });
   }
-
-  // process.send({ fun: 'data', list: darr, hist: harr });
 }
 
 function getStatusName(cid) {
@@ -946,11 +943,8 @@ function getDateObj(date) {
   };
 }
 
-function traceMsg(text, section) {
+function traceMsg(txt, section) {
   if (!section || logsection[section]) {
-    // let txt = section ? section + ' ' + text : text;
-    let txt = text;
-    // process.send({ type: "log", txt, level: 2 });
     process.send({ type: 'log', txt, level: 2 });
   }
 }
