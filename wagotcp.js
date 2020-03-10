@@ -317,7 +317,7 @@ function serverStart(port) {
 
         if (delim != 65535) {
           // ffff
-          errMsg('Wrong delim! ' + String(delim), 'buffer');
+          errMsg('Wrong delim: ' + String(delim)+' Buffer(hex): '+one.toString('hex'));
           return;
         }
         if (tms >= 1000) tms = 0; // милисекунды не должны быть больше 1000!!!
