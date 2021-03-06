@@ -1,0 +1,23 @@
+{
+  "grid": [
+    { "id": "p2", "xs": 6, "class": "main", "table": "devhard" },
+    { "id": "p3", "xs": 6, "class": "main", "table": "devhard" },
+    { "id": "p9", "xs": 12, "class": "main", "table": "onechannelrtTable" }
+  ],
+  "spacing": 4,
+
+  "p2": [
+    { "prop": "chan", "title": "Channel ID", "type": "text" },  
+    
+    { "prop": "devpropname", "title": "Свойство для привязки", "type": "input"}
+  ],
+
+  "p3": [
+    { "prop": "w", "title": "Команда", "type": "cb" }
+   
+  ],
+  "p9": [
+    { "prop": "realtime_chan_str", "title": "Канал", "type": "text"},
+    { "prop": "realtime_dev_str", "title": "Устройство", "type": "text"}
+  ]
+}
